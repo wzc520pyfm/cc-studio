@@ -54,6 +54,12 @@ class BaseTerminalController: NSWindowController,
     /// True when any surface in this controller currently has an active bell.
     @Published private(set) var bell: Bool = false
 
+    /// The tab manager for vertical tabs.
+    let tabManager = TabManager()
+
+    /// The notification manager for tracking events across tabs.
+    let notificationManager = NotificationManager()
+
     /// Whether the terminal surface should focus when the mouse is over it.
     var focusFollowsMouse: Bool {
         self.derivedConfig.focusFollowsMouse
@@ -96,7 +102,7 @@ class BaseTerminalController: NSWindowController,
     }
 
     /// The last computed title from the focused surface (without the override).
-    private var lastComputedTitle: String = "👻"
+    private var lastComputedTitle: String = "CC Studio"
 
     /// The time that undo/redo operations that contain running ptys are valid for.
     var undoExpiration: Duration {
@@ -219,6 +225,9 @@ class BaseTerminalController: NSWindowController,
         self.eventMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [.flagsChanged]
         ) { [weak self] event in self?.localEventHandler(event) }
+
+        // Setup the initial tab in the tab manager
+        setupInitialTab()
     }
 
     deinit {
@@ -291,6 +300,13 @@ class BaseTerminalController: NSWindowController,
         // If our surface tree becomes empty then we have no focused surface.
         if to.isEmpty {
             focusedSurface = nil
+        }
+
+        // Keep the active tab's tree in sync
+        if let activeId = tabManager.activeTabId {
+            tabManager.updateTab(id: activeId) { tab in
+                tab.surfaceTree = to
+            }
         }
     }
 
@@ -822,7 +838,7 @@ class BaseTerminalController: NSWindowController,
                 .store(in: &focusedSurfaceCancellables)
         } else {
             // There is no surface to listen to titles for.
-            titleDidChange(to: "👻")
+            titleDidChange(to: "CC Studio")
         }
     }
 
@@ -880,6 +896,14 @@ class BaseTerminalController: NSWindowController,
         case .drop(let drop):
             splitDidDrop(source: drop.payload, destination: drop.destination, zone: drop.zone)
         }
+    }
+
+    func requestNewTab() {
+        createNewTab()
+    }
+
+    func requestCloseTab(_ tabId: UUID) {
+        closeTab(id: tabId)
     }
 
     private func splitDidResize(node: SplitTree<Ghostty.SurfaceView>.Node, to newRatio: Double) {
@@ -977,6 +1001,108 @@ class BaseTerminalController: NSWindowController,
         _ = action.withCString { cString in
             ghostty_surface_binding_action(surface, cString, UInt(len - 1))
         }
+    }
+
+    // MARK: Tab Management
+
+    /// Create the initial tab from the current surface tree.
+    func setupInitialTab() {
+        guard tabManager.tabs.isEmpty else { return }
+        let tab = TabManager.Tab(surfaceTree: surfaceTree)
+        tabManager.addTab(tab)
+    }
+
+    /// Create a new tab with a fresh terminal surface.
+    func createNewTab(baseConfig: Ghostty.SurfaceConfiguration? = nil) {
+        guard let ghostty_app = ghostty.app else { return }
+        let newSurface = Ghostty.SurfaceView(ghostty_app, baseConfig: baseConfig)
+        let newTree = SplitTree<Ghostty.SurfaceView>(view: newSurface)
+        let newTab = TabManager.Tab(surfaceTree: newTree)
+
+        // Save current tree to active tab before switching
+        if let activeId = tabManager.activeTabId {
+            tabManager.updateTab(id: activeId) { [weak self] tab in
+                guard let self else { return }
+                tab.surfaceTree = self.surfaceTree
+                tab.focusedSurface = self.focusedSurface
+            }
+        }
+
+        tabManager.addTab(newTab)
+        surfaceTree = newTree
+        DispatchQueue.main.async {
+            Ghostty.moveFocus(to: newSurface)
+        }
+    }
+
+    /// Switch to a specific tab by ID.
+    func switchToTab(id: UUID) {
+        guard let targetTab = tabManager.tabs.first(where: { $0.id == id }) else { return }
+        guard tabManager.activeTabId != id else { return }
+
+        // Save current tree
+        if let activeId = tabManager.activeTabId {
+            tabManager.updateTab(id: activeId) { [weak self] tab in
+                guard let self else { return }
+                tab.surfaceTree = self.surfaceTree
+                tab.focusedSurface = self.focusedSurface
+            }
+        }
+
+        tabManager.selectTab(id: id)
+        surfaceTree = targetTab.surfaceTree
+        if let focused = targetTab.focusedSurface {
+            DispatchQueue.main.async {
+                Ghostty.moveFocus(to: focused)
+            }
+        }
+    }
+
+    /// Close a tab by its ID.
+    func closeTab(id: UUID) {
+        guard tabManager.tabs.count > 1 else {
+            window?.performClose(self)
+            return
+        }
+
+        let wasActive = tabManager.activeTabId == id
+        tabManager.removeTab(id: id)
+
+        if wasActive, let newActiveTab = tabManager.activeTab {
+            surfaceTree = newActiveTab.surfaceTree
+            if let focused = newActiveTab.focusedSurface {
+                DispatchQueue.main.async {
+                    Ghostty.moveFocus(to: focused)
+                }
+            }
+        }
+    }
+
+    // MARK: Browser Splits
+
+    /// Create a new browser split from the currently focused surface.
+    func newBrowserSplit(direction: SplitTree<Ghostty.SurfaceView>.NewDirection, url: URL? = nil) {
+        guard let focusedSurface else { return }
+        guard surfaceTree.root?.node(view: focusedSurface) != nil else { return }
+        guard let ghostty_app = ghostty.app else { return }
+
+        let newSurface = Ghostty.SurfaceView(ghostty_app, baseConfig: nil)
+        let newTree: SplitTree<Ghostty.SurfaceView>
+        do {
+            newTree = try surfaceTree.inserting(
+                view: newSurface,
+                at: focusedSurface,
+                direction: direction)
+        } catch {
+            Ghostty.logger.warning("failed to insert browser split: \(error)")
+            return
+        }
+
+        replaceSurfaceTree(
+            newTree,
+            moveFocusTo: newSurface,
+            moveFocusFrom: focusedSurface,
+            undoAction: "New Browser Split")
     }
 
     // MARK: Appearance
@@ -1380,6 +1506,36 @@ class BaseTerminalController: NSWindowController,
         ghostty.splitMoveFocus(surface: surface, direction: direction)
     }
 
+    @IBAction func toggleSidebar(_ sender: Any) {
+        tabManager.toggleCollapsed()
+    }
+
+    @IBAction func newBrowserSplitRight(_ sender: Any) {
+        newBrowserSplit(direction: .right)
+    }
+
+    @IBAction func newBrowserSplitDown(_ sender: Any) {
+        newBrowserSplit(direction: .down)
+    }
+
+    @IBAction func nextTab(_ sender: Any) {
+        if let activeId = tabManager.activeTabId {
+            tabManager.selectNextTab()
+            if let newId = tabManager.activeTabId, newId != activeId {
+                switchToTab(id: newId)
+            }
+        }
+    }
+
+    @IBAction func previousTab(_ sender: Any) {
+        if let activeId = tabManager.activeTabId {
+            tabManager.selectPreviousTab()
+            if let newId = tabManager.activeTabId, newId != activeId {
+                switchToTab(id: newId)
+            }
+        }
+    }
+
     @IBAction func increaseFontSize(_ sender: Any) {
         guard let surface = focusedSurface?.surface else { return }
         ghostty.changeFontSize(surface: surface, .increase(1))
@@ -1511,6 +1667,15 @@ extension BaseTerminalController {
                     object: self,
                     userInfo: [Notification.Name.terminalWindowHasBellKey: hasBell]
                 )
+
+                // Route bell events to notification manager for tab badges
+                if hasBell, let activeId = tabManager.activeTabId {
+                    notificationManager.addBell(
+                        tabId: activeId,
+                        surfaceTitle: focusedSurface?.title ?? "Terminal"
+                    )
+                    tabManager.addNotification(for: activeId)
+                }
             }
     }
 

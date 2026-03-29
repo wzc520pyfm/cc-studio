@@ -1371,6 +1371,26 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         focusedSurface.$backgroundColor
             .sink { [weak self, weak focusedSurface] _ in self?.syncAppearanceOnPropertyChange(focusedSurface) }
             .store(in: &surfaceAppearanceCancellables)
+
+        // Update the active tab's title and pwd in the tab manager
+        focusedSurface.$title
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] title in
+                guard let self, let activeId = self.tabManager.activeTabId else { return }
+                self.tabManager.updateTab(id: activeId) { tab in
+                    tab.title = title
+                }
+            }
+            .store(in: &surfaceAppearanceCancellables)
+        focusedSurface.$pwd
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] pwd in
+                guard let self, let activeId = self.tabManager.activeTabId else { return }
+                self.tabManager.updateTab(id: activeId) { tab in
+                    tab.pwd = pwd
+                }
+            }
+            .store(in: &surfaceAppearanceCancellables)
     }
 
     private func syncAppearanceOnPropertyChange(_ surface: Ghostty.SurfaceView?) {

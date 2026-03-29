@@ -1,19 +1,16 @@
 <!-- LOGO -->
 <h1>
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/fe853809-ba8b-400b-83ab-a9a0da25be8a" alt="Logo" width="128">
-  <br>Ghostty
+  <br>CC Studio
 </h1>
   <p align="center">
-    Fast, native, feature-rich terminal emulator pushing modern features.
+    AI Agent Studio — the next-generation development environment for AI-native coding.
     <br />
-    A native GUI or embeddable library via <code>libghostty</code>.
+    Built on <a href="https://github.com/ghostty-org/ghostty">Ghostty</a>, enhanced with built-in browser, vertical tabs, and notification system.
     <br />
     <a href="#about">About</a>
     ·
-    <a href="https://ghostty.org/download">Download</a>
-    ·
-    <a href="https://ghostty.org/docs">Documentation</a>
+    <a href="#features">Features</a>
     ·
     <a href="CONTRIBUTING.md">Contributing</a>
     ·
@@ -23,10 +20,24 @@
 
 ## About
 
-Ghostty is a terminal emulator that differentiates itself by being
-fast, feature-rich, and native. While there are many excellent terminal
-emulators available, they all force you to choose between speed,
-features, or native UIs. Ghostty provides all three.
+CC Studio is an AI Agent Studio built on top of the excellent
+[Ghostty](https://github.com/ghostty-org/ghostty) terminal emulator.
+It is designed for the AI-native development workflow where CLI agents
+like Claude Code are the primary programming interface.
+
+Traditional IDEs (VS Code, Cursor, etc.) are too heavy for this new
+paradigm. When programming only needs a terminal, CC Studio provides
+exactly what you need — a blazing fast terminal with built-in browser
+panes, vertical tab management, and an integrated notification system.
+
+### Key Enhancements over Ghostty
+
+- **Built-in Browser** — Split panes can now contain browser views alongside terminals
+- **Vertical Tab Bar** — Collapsible sidebar for managing multiple terminal sessions
+- **Notification System** — Get notified when AI agents complete tasks or need attention
+
+CC Studio inherits all of Ghostty's strengths: it is fast, feature-rich,
+and native.
 
 **`libghostty`** is a cross-platform, zero-dependency C and Zig library
 for building terminal emulators or utilizing terminal functionality

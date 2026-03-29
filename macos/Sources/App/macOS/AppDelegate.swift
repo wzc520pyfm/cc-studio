@@ -311,6 +311,7 @@ class AppDelegate: NSObject,
 
         // Setup our menu
         setupMenuImages()
+        setupCCStudioMenuItems()
 
         // Setup signal handlers
         setupSignals()
@@ -964,6 +965,21 @@ class AppDelegate: NSObject,
         )
     }
 
+    @IBAction func newBrowserSplitRight(_ sender: Any?) {
+        guard let controller = NSApp.keyWindow?.windowController as? BaseTerminalController else { return }
+        controller.newBrowserSplit(direction: .right)
+    }
+
+    @IBAction func newBrowserSplitDown(_ sender: Any?) {
+        guard let controller = NSApp.keyWindow?.windowController as? BaseTerminalController else { return }
+        controller.newBrowserSplit(direction: .down)
+    }
+
+    @IBAction func toggleSidebar(_ sender: Any?) {
+        guard let controller = NSApp.keyWindow?.windowController as? BaseTerminalController else { return }
+        controller.toggleSidebar(sender ?? self)
+    }
+
     @IBAction func closeAllWindows(_ sender: Any?) {
         TerminalController.closeAllWindows()
         AboutController.shared.hide()
@@ -974,7 +990,7 @@ class AppDelegate: NSObject,
     }
 
     @IBAction func showHelp(_ sender: Any) {
-        guard let url = URL(string: "https://ghostty.org/docs") else { return }
+        guard let url = URL(string: "https://github.com/cc-studio-dev/cc-studio") else { return }
         NSWorkspace.shared.open(url)
     }
 
@@ -1141,6 +1157,52 @@ extension AppDelegate {
         self.menuMoveSplitDividerRight?.setImageIfDesired(systemSymbolName: "arrow.right.to.line")
         self.menuFloatOnTop?.setImageIfDesired(systemSymbolName: "square.filled.on.square")
         self.menuFindParent?.setImageIfDesired(systemSymbolName: "text.page.badge.magnifyingglass")
+    }
+
+    /// Add CC Studio specific menu items (browser splits, sidebar toggle).
+    private func setupCCStudioMenuItems() {
+        guard let mainMenu = NSApp.mainMenu else { return }
+
+        // Find the Shell menu (where New Window/Tab/Split items live)
+        guard let shellMenu = mainMenu.item(withTitle: "Shell")?.submenu
+                ?? mainMenu.item(at: 1)?.submenu else { return }
+
+        // Find the split items and add browser split after them
+        if let splitDownIndex = shellMenu.indexOfItem(withTarget: nil, andAction: #selector(BaseTerminalController.splitDown(_:))),
+           splitDownIndex != -1 {
+            shellMenu.insertItem(NSMenuItem.separator(), at: splitDownIndex + 1)
+
+            let browserSplitRight = NSMenuItem(
+                title: "New Browser Split Right",
+                action: #selector(AppDelegate.newBrowserSplitRight(_:)),
+                keyEquivalent: "b"
+            )
+            browserSplitRight.keyEquivalentModifierMask = [.command, .shift]
+            browserSplitRight.setImageIfDesired(systemSymbolName: "globe")
+            shellMenu.insertItem(browserSplitRight, at: splitDownIndex + 2)
+
+            let browserSplitDown = NSMenuItem(
+                title: "New Browser Split Down",
+                action: #selector(AppDelegate.newBrowserSplitDown(_:)),
+                keyEquivalent: ""
+            )
+            browserSplitDown.setImageIfDesired(systemSymbolName: "globe")
+            shellMenu.insertItem(browserSplitDown, at: splitDownIndex + 3)
+        }
+
+        // Find the View menu and add sidebar toggle
+        if let viewMenu = mainMenu.item(withTitle: "View")?.submenu {
+            viewMenu.insertItem(NSMenuItem.separator(), at: 0)
+
+            let toggleSidebar = NSMenuItem(
+                title: "Toggle Sidebar",
+                action: #selector(AppDelegate.toggleSidebar(_:)),
+                keyEquivalent: "l"
+            )
+            toggleSidebar.keyEquivalentModifierMask = [.command, .shift]
+            toggleSidebar.setImageIfDesired(systemSymbolName: "sidebar.left")
+            viewMenu.insertItem(toggleSidebar, at: 0)
+        }
     }
 
     /// Sync all of our menu item keyboard shortcuts with the Ghostty configuration.

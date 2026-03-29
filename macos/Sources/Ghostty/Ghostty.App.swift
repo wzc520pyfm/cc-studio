@@ -1381,6 +1381,13 @@ extension Ghostty {
                 guard let body = String(cString: n.body!, encoding: .utf8) else { return }
                 showDesktopNotification(surfaceView, title: title, body: body)
 
+                routeToNotificationManager(
+                    surfaceView: surfaceView,
+                    type: .desktopNotification,
+                    title: title,
+                    body: body
+                )
+
             default:
                 assertionFailure()
             }
@@ -1480,9 +1487,35 @@ extension Ghostty {
                     )
                 }
 
+                // Route command finish to notification manager for tab badges
+                routeToNotificationManager(
+                    surfaceView: surfaceView,
+                    type: v.exit_code == 0 ? .commandComplete : .commandError,
+                    title: v.exit_code == 0 ? "Command Succeeded" : "Command Failed",
+                    body: surfaceView.title
+                )
+
             default:
                 assertionFailure()
             }
+        }
+
+        /// Route an event to the NotificationManager for the tab that contains this surface.
+        private static func routeToNotificationManager(
+            surfaceView: SurfaceView,
+            type: NotificationManager.NotificationType,
+            title: String,
+            body: String
+        ) {
+            guard let controller = surfaceView.window?.windowController as? BaseTerminalController else { return }
+            guard let tab = controller.tabManager.tab(for: surfaceView) else { return }
+            controller.notificationManager.addNotification(
+                tabId: tab.id,
+                type: type,
+                title: title,
+                body: body
+            )
+            controller.tabManager.addNotification(for: tab.id)
         }
 
         private static func toggleFloatWindow(
