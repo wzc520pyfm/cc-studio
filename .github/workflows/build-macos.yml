@@ -1,0 +1,87 @@
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+name: Build macOS
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      ZIG_LOCAL_CACHE_DIR: /Users/runner/zig/local-cache
+      ZIG_GLOBAL_CACHE_DIR: /Users/runner/zig/global-cache
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+
+      - name: Select Xcode 16
+        run: |
+          ls /Applications/Xcode*.app || true
+          sudo xcode-select -s /Applications/Xcode_16.2.app || sudo xcode-select -s /Applications/Xcode_16.1.app || sudo xcode-select -s /Applications/Xcode.app
+          xcodebuild -version
+          swift --version
+
+      - name: Build GhosttyKit xcframework
+        run: zig build -Demit-macos-app=false
+
+      - name: Build CC Studio.app
+        run: |
+          cd macos
+          xcodebuild -target Ghostty -configuration Debug -arch arm64
+
+      - name: Package app
+        run: |
+          APP_PATH="macos/build/Debug/Ghostty.app"
+          if [ -d "$APP_PATH" ]; then
+            cd macos/build/Debug
+            zip -9 -r --symlinks ../../../cc-studio-macos-arm64.zip Ghostty.app
+          else
+            echo "App not found at $APP_PATH"
+            ls -la macos/build/ || true
+            ls -la macos/build/Debug/ || true
+            exit 1
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cc-studio-macos-arm64
+          path: cc-studio-macos-arm64.zip
+
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: cc-studio-macos-arm64
+
+      - name: Create or update dev release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dev
+          name: "CC Studio Dev Build"
+          body: |
+            Automated dev build from the latest `main` branch.
+
+            **This is a development build — not for production use.**
+
+            Built from commit ${{ github.sha }}
+          prerelease: true
+          files: cc-studio-macos-arm64.zip
+          make_latest: false
