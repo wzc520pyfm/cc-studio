@@ -28,7 +28,7 @@ jobs:
       - name: Select Xcode
         run: |
           ls /Applications/Xcode*.app || true
-          sudo xcode-select -s /Applications/Xcode_26.1.1.app || sudo xcode-select -s /Applications/Xcode_26.1.app || sudo xcode-select -s /Applications/Xcode_26.0.1.app || sudo xcode-select -s /Applications/Xcode_26.0.app || sudo xcode-select -s /Applications/Xcode_16.4.app || sudo xcode-select -s /Applications/Xcode.app
+          sudo xcode-select -s /Applications/Xcode_16.4.app || sudo xcode-select -s /Applications/Xcode_16.4.0.app || sudo xcode-select -s /Applications/Xcode_16.3.app || sudo xcode-select -s /Applications/Xcode.app
           xcodebuild -version
           swift --version
 
