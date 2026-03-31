@@ -1168,8 +1168,8 @@ extension AppDelegate {
                 ?? mainMenu.item(at: 1)?.submenu else { return }
 
         // Find the split items and add browser split after them
-        if let splitDownIndex = shellMenu.indexOfItem(withTarget: nil, andAction: #selector(BaseTerminalController.splitDown(_:))),
-           splitDownIndex != -1 {
+        let splitDownIndex = shellMenu.indexOfItem(withTarget: nil, andAction: #selector(BaseTerminalController.splitDown(_:)))
+        if splitDownIndex != -1 {
             shellMenu.insertItem(NSMenuItem.separator(), at: splitDownIndex + 1)
 
             let browserSplitRight = NSMenuItem(
