@@ -47,7 +47,7 @@ class PaneView: NSView, Identifiable, Codable {
         return false
     }
 
-    var surface: OpaquePointer? { surfaceView?.surface }
+    var surface: ghostty_surface_t? { surfaceView?.surface }
 
     var needsConfirmQuit: Bool { surfaceView?.needsConfirmQuit ?? false }
 
