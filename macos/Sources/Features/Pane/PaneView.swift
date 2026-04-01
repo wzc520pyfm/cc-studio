@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import GhosttyKit
 import WebKit
 
 /// A wrapper NSView that can host either a terminal surface or a browser pane.

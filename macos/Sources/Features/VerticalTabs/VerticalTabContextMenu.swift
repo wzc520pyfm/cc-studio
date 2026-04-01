@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Context menu for right-clicking on a vertical tab item.
