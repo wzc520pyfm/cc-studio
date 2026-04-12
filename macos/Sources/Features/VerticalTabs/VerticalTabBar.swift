@@ -11,19 +11,34 @@ struct VerticalTabBar: View {
 
     @State private var hoveredTabId: UUID?
     @State private var collapsedProjects: Set<String> = []
+    @State private var sidebarWidth: CGFloat = 240
+    @State private var widthAtDragStart: CGFloat?
 
     private let collapsedWidth: CGFloat = 40
-    private let expandedWidth: CGFloat = 240
+    private let minExpandedWidth: CGFloat = 160
+    private let maxExpandedWidth: CGFloat = 400
 
     var body: some View {
-        VStack(spacing: 0) {
-            tabList
-            Divider()
-            bottomBar
+        HStack(spacing: 0) {
+            VStack(spacing: 0) {
+                tabList
+                Divider()
+                bottomBar
+            }
+            .frame(width: tabManager.isCollapsed ? collapsedWidth : sidebarWidth)
+            .clipped()
+            .background(Color(nsColor: .windowBackgroundColor).opacity(0.95))
+
+            if !tabManager.isCollapsed {
+                SidebarResizeHandle(
+                    sidebarWidth: $sidebarWidth,
+                    widthAtDragStart: $widthAtDragStart,
+                    minWidth: minExpandedWidth,
+                    maxWidth: maxExpandedWidth
+                )
+                .frame(width: 6)
+            }
         }
-        .frame(width: tabManager.isCollapsed ? collapsedWidth : expandedWidth)
-        .clipped()
-        .background(Color(nsColor: .windowBackgroundColor).opacity(0.95))
     }
 
     // MARK: - Tab List
@@ -225,6 +240,71 @@ struct VerticalTabBar: View {
                     onGoToNotificationTab(tabId)
                 }
             )
+        }
+    }
+}
+
+// MARK: - AppKit-based resize handle (no SwiftUI DragGesture jitter)
+
+fileprivate class ResizeHandleNSView: NSView {
+    var onDrag: ((CGFloat) -> Void)?
+    var onDragEnd: (() -> Void)?
+    private var startX: CGFloat = 0
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .resizeLeftRight)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        startX = NSEvent.mouseLocation.x
+        onDrag?(0)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        let delta = NSEvent.mouseLocation.x - startX
+        onDrag?(delta)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        onDragEnd?()
+    }
+}
+
+fileprivate struct SidebarResizeHandle: NSViewRepresentable {
+    @Binding var sidebarWidth: CGFloat
+    @Binding var widthAtDragStart: CGFloat?
+    let minWidth: CGFloat
+    let maxWidth: CGFloat
+
+    func makeNSView(context: Context) -> ResizeHandleNSView {
+        let view = ResizeHandleNSView()
+        view.onDrag = { delta in
+            if widthAtDragStart == nil {
+                widthAtDragStart = sidebarWidth
+            }
+            if let start = widthAtDragStart {
+                let newWidth = start + delta
+                sidebarWidth = max(minWidth, min(maxWidth, newWidth))
+            }
+        }
+        view.onDragEnd = {
+            widthAtDragStart = nil
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: ResizeHandleNSView, context: Context) {
+        nsView.onDrag = { delta in
+            if widthAtDragStart == nil {
+                widthAtDragStart = sidebarWidth
+            }
+            if let start = widthAtDragStart {
+                let newWidth = start + delta
+                sidebarWidth = max(minWidth, min(maxWidth, newWidth))
+            }
+        }
+        nsView.onDragEnd = {
+            widthAtDragStart = nil
         }
     }
 }

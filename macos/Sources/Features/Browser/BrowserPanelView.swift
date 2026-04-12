@@ -12,6 +12,58 @@ struct BrowserPanelView: NSViewRepresentable {
     func updateNSView(_ nsView: BrowserPaneView, context: Context) {}
 }
 
+// MARK: - AppKit-based resize handle for splits (no SwiftUI jitter)
+
+private class SplitResizeNSView: NSView {
+    var isHorizontal: Bool = true
+    var onDrag: ((CGFloat) -> Void)?
+    var onDragEnd: (() -> Void)?
+    private var startPos: CGFloat = 0
+
+    override func resetCursorRects() {
+        let cursor: NSCursor = isHorizontal ? .resizeLeftRight : .resizeUpDown
+        addCursorRect(bounds, cursor: cursor)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let pos = NSEvent.mouseLocation
+        startPos = isHorizontal ? pos.x : pos.y
+        onDrag?(0)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        let pos = NSEvent.mouseLocation
+        let current = isHorizontal ? pos.x : pos.y
+        let delta = current - startPos
+        let adjusted = isHorizontal ? delta : -delta
+        onDrag?(adjusted)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        onDragEnd?()
+    }
+}
+
+private struct SplitResizeHandle: NSViewRepresentable {
+    let isHorizontal: Bool
+    let onDrag: (CGFloat) -> Void
+    let onDragEnd: () -> Void
+
+    func makeNSView(context: Context) -> SplitResizeNSView {
+        let view = SplitResizeNSView()
+        view.isHorizontal = isHorizontal
+        view.onDrag = onDrag
+        view.onDragEnd = onDragEnd
+        return view
+    }
+
+    func updateNSView(_ nsView: SplitResizeNSView, context: Context) {
+        nsView.isHorizontal = isHorizontal
+        nsView.onDrag = onDrag
+        nsView.onDragEnd = onDragEnd
+    }
+}
+
 /// A container that shows browser panels alongside terminal content,
 /// with a draggable divider between them.
 struct BrowserSplitContainer<Content: View>: View {
@@ -19,7 +71,7 @@ struct BrowserSplitContainer<Content: View>: View {
     @ObservedObject var panelManager: BrowserPanelManager
     let onClosePanel: (UUID) -> Void
 
-    @State private var dragOffset: CGFloat = 0
+    @State private var ratioAtDragStart: CGFloat?
 
     init(
         panelManager: BrowserPanelManager,
@@ -51,78 +103,66 @@ struct BrowserSplitContainer<Content: View>: View {
     }
 
     private func horizontalSplit(geo: GeometryProxy, rightPanels: [BrowserPanelManager.Panel]) -> some View {
-        let ratio = panelManager.splitRatio
         let totalWidth = geo.size.width
-        let leftWidth = totalWidth * ratio
-        let dividerWidth: CGFloat = 4
+        let handleWidth: CGFloat = 6
+        let leftWidth = max(100, min(totalWidth - 100, totalWidth * panelManager.splitRatio))
+        let rightWidth = max(0, totalWidth - leftWidth - handleWidth)
 
         return HStack(spacing: 0) {
             content
-                .frame(width: max(leftWidth + dragOffset, 100))
+                .frame(width: leftWidth)
 
-            Rectangle()
-                .fill(Color(nsColor: .separatorColor))
-                .frame(width: dividerWidth)
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture()
-                        .onChanged { value in
-                            dragOffset = value.translation.width
-                        }
-                        .onEnded { value in
-                            let newRatio = (leftWidth + value.translation.width) / totalWidth
-                            panelManager.splitRatio = max(0.15, min(0.85, newRatio))
-                            dragOffset = 0
-                        }
-                )
-                .onHover { hovering in
-                    if hovering {
-                        NSCursor.resizeLeftRight.push()
-                    } else {
-                        NSCursor.pop()
+            SplitResizeHandle(
+                isHorizontal: true,
+                onDrag: { delta in
+                    if ratioAtDragStart == nil {
+                        ratioAtDragStart = panelManager.splitRatio
                     }
+                    if let start = ratioAtDragStart {
+                        let newRatio = start + delta / totalWidth
+                        panelManager.splitRatio = max(0.15, min(0.85, newRatio))
+                    }
+                },
+                onDragEnd: {
+                    ratioAtDragStart = nil
                 }
+            )
+            .frame(width: handleWidth)
 
             browserStack(panels: rightPanels)
-                .frame(maxWidth: .infinity)
+                .frame(width: rightWidth)
         }
     }
 
     private func verticalSplit(geo: GeometryProxy, bottomPanels: [BrowserPanelManager.Panel]) -> some View {
-        let ratio = panelManager.splitRatio
         let totalHeight = geo.size.height
-        let topHeight = totalHeight * ratio
-        let dividerHeight: CGFloat = 4
+        let handleHeight: CGFloat = 6
+        let topHeight = max(100, min(totalHeight - 100, totalHeight * panelManager.splitRatio))
+        let bottomHeight = max(0, totalHeight - topHeight - handleHeight)
 
         return VStack(spacing: 0) {
             content
-                .frame(height: max(topHeight + dragOffset, 100))
+                .frame(height: topHeight)
 
-            Rectangle()
-                .fill(Color(nsColor: .separatorColor))
-                .frame(height: dividerHeight)
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture()
-                        .onChanged { value in
-                            dragOffset = value.translation.height
-                        }
-                        .onEnded { value in
-                            let newRatio = (topHeight + value.translation.height) / totalHeight
-                            panelManager.splitRatio = max(0.15, min(0.85, newRatio))
-                            dragOffset = 0
-                        }
-                )
-                .onHover { hovering in
-                    if hovering {
-                        NSCursor.resizeUpDown.push()
-                    } else {
-                        NSCursor.pop()
+            SplitResizeHandle(
+                isHorizontal: false,
+                onDrag: { delta in
+                    if ratioAtDragStart == nil {
+                        ratioAtDragStart = panelManager.splitRatio
                     }
+                    if let start = ratioAtDragStart {
+                        let newRatio = start + delta / totalHeight
+                        panelManager.splitRatio = max(0.15, min(0.85, newRatio))
+                    }
+                },
+                onDragEnd: {
+                    ratioAtDragStart = nil
                 }
+            )
+            .frame(height: handleHeight)
 
             browserStack(panels: bottomPanels)
-                .frame(maxHeight: .infinity)
+                .frame(height: bottomHeight)
         }
     }
 

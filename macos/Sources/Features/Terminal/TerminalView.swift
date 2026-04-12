@@ -91,7 +91,7 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
         case .ready:
             ZStack {
                 HStack(spacing: 0) {
-                    // Vertical tab sidebar
+                    // Vertical tab sidebar with built-in resize handle
                     VerticalTabBar(
                         tabManager: viewModel.tabManager,
                         notificationManager: viewModel.notificationManager,
@@ -100,8 +100,6 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                         onCloseTab: { tabId in delegate?.requestCloseTab(tabId) },
                         onGoToNotificationTab: { tabId in delegate?.requestSwitchToTab(tabId) }
                     )
-
-                    Divider()
 
                     // Main content area with optional browser panels
                     BrowserSplitContainer(
