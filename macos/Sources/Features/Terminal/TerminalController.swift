@@ -1387,7 +1387,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             .sink { [weak self] pwd in
                 guard let self, let activeId = self.tabManager.activeTabId else { return }
                 self.tabManager.updateTab(id: activeId) { tab in
-                    tab.pwd = pwd ?? ""
+                    let newPwd = pwd ?? ""
+                    tab.pwd = newPwd
+                    if tab.projectPath.isEmpty && !newPwd.isEmpty {
+                        tab.projectPath = newPwd
+                    }
                 }
             }
             .store(in: &surfaceAppearanceCancellables)

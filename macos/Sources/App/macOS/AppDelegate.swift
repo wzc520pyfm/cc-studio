@@ -980,6 +980,11 @@ class AppDelegate: NSObject,
         controller.toggleSidebar(sender ?? self)
     }
 
+    @IBAction func toggleNotifications(_ sender: Any?) {
+        guard let controller = NSApp.keyWindow?.windowController as? BaseTerminalController else { return }
+        controller.notificationManager.togglePanel()
+    }
+
     @IBAction func closeAllWindows(_ sender: Any?) {
         TerminalController.closeAllWindows()
         AboutController.shared.hide()
@@ -1190,9 +1195,18 @@ extension AppDelegate {
             shellMenu.insertItem(browserSplitDown, at: splitDownIndex + 3)
         }
 
-        // Find the View menu and add sidebar toggle
+        // Find the View menu and add sidebar toggle + notification toggle
         if let viewMenu = mainMenu.item(withTitle: "View")?.submenu {
             viewMenu.insertItem(NSMenuItem.separator(), at: 0)
+
+            let toggleNotifications = NSMenuItem(
+                title: "Toggle Notifications",
+                action: #selector(AppDelegate.toggleNotifications(_:)),
+                keyEquivalent: "n"
+            )
+            toggleNotifications.keyEquivalentModifierMask = [.command, .shift]
+            toggleNotifications.setImageIfDesired(systemSymbolName: "bell")
+            viewMenu.insertItem(toggleNotifications, at: 0)
 
             let toggleSidebar = NSMenuItem(
                 title: "Toggle Sidebar",

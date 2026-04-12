@@ -221,36 +221,58 @@ enum TerminalSplitDropZone: String, Equatable {
 
     @ViewBuilder
     func overlay(in geometry: GeometryProxy) -> some View {
-        let overlayColor = Color.accentColor.opacity(0.3)
+        let overlayFill = Color.accentColor.opacity(0.15)
+        let overlayBorder = Color.accentColor.opacity(0.6)
+        let inset: CGFloat = 2
 
         switch self {
         case .top:
             VStack(spacing: 0) {
-                Rectangle()
-                    .fill(overlayColor)
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(overlayFill)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .strokeBorder(overlayBorder, lineWidth: 2)
+                    )
                     .frame(height: geometry.size.height / 2)
+                    .padding(inset)
                 Spacer()
             }
         case .bottom:
             VStack(spacing: 0) {
                 Spacer()
-                Rectangle()
-                    .fill(overlayColor)
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(overlayFill)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .strokeBorder(overlayBorder, lineWidth: 2)
+                    )
                     .frame(height: geometry.size.height / 2)
+                    .padding(inset)
             }
         case .left:
             HStack(spacing: 0) {
-                Rectangle()
-                    .fill(overlayColor)
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(overlayFill)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .strokeBorder(overlayBorder, lineWidth: 2)
+                    )
                     .frame(width: geometry.size.width / 2)
+                    .padding(inset)
                 Spacer()
             }
         case .right:
             HStack(spacing: 0) {
                 Spacer()
-                Rectangle()
-                    .fill(overlayColor)
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(overlayFill)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 4)
+                            .strokeBorder(overlayBorder, lineWidth: 2)
+                    )
                     .frame(width: geometry.size.width / 2)
+                    .padding(inset)
             }
         }
     }

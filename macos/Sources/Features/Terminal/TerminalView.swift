@@ -26,6 +26,9 @@ protocol TerminalViewDelegate: AnyObject {
 
     /// Request to close a tab by its ID.
     func requestCloseTab(_ tabId: UUID)
+
+    /// Request to switch to a specific tab.
+    func requestSwitchToTab(_ tabId: UUID)
 }
 
 /// The view model is a required implementation for TerminalView callers. This contains
@@ -47,6 +50,9 @@ protocol TerminalViewModel: ObservableObject {
 
     /// The notification manager for tracking events across tabs.
     var notificationManager: NotificationManager { get }
+
+    /// The browser panel manager for browser panes alongside terminal splits.
+    var browserPanelManager: BrowserPanelManager { get }
 }
 
 /// The main terminal view. This terminal view supports splits.
@@ -88,40 +94,50 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                     // Vertical tab sidebar
                     VerticalTabBar(
                         tabManager: viewModel.tabManager,
+                        notificationManager: viewModel.notificationManager,
+                        onSelectTab: { tabId in delegate?.requestSwitchToTab(tabId) },
                         onNewTab: { delegate?.requestNewTab() },
-                        onCloseTab: { tabId in delegate?.requestCloseTab(tabId) }
+                        onCloseTab: { tabId in delegate?.requestCloseTab(tabId) },
+                        onGoToNotificationTab: { tabId in delegate?.requestSwitchToTab(tabId) }
                     )
 
                     Divider()
 
-                    // Main content area
-                    VStack(spacing: 0) {
-                        if Ghostty.info.mode == GHOSTTY_BUILD_MODE_DEBUG || Ghostty.info.mode == GHOSTTY_BUILD_MODE_RELEASE_SAFE {
-                            DebugBuildWarningView()
+                    // Main content area with optional browser panels
+                    BrowserSplitContainer(
+                        panelManager: viewModel.browserPanelManager,
+                        onClosePanel: { panelId in
+                            viewModel.browserPanelManager.removePanel(id: panelId)
                         }
+                    ) {
+                        VStack(spacing: 0) {
+                            if Ghostty.info.mode == GHOSTTY_BUILD_MODE_DEBUG || Ghostty.info.mode == GHOSTTY_BUILD_MODE_RELEASE_SAFE {
+                                DebugBuildWarningView()
+                            }
 
-                        TerminalSplitTreeView(
-                            tree: viewModel.surfaceTree,
-                            action: { delegate?.performSplitAction($0) })
-                            .environmentObject(ghostty)
-                            .ghosttyLastFocusedSurface(lastFocusedSurface)
-                            .focused($focused)
-                            .onAppear { self.focused = true }
-                            .onChange(of: focusedSurface) { newValue in
-                                if newValue != nil {
-                                    lastFocusedSurface = .init(newValue)
-                                    self.delegate?.focusedSurfaceDidChange(to: newValue)
+                            TerminalSplitTreeView(
+                                tree: viewModel.surfaceTree,
+                                action: { delegate?.performSplitAction($0) })
+                                .environmentObject(ghostty)
+                                .ghosttyLastFocusedSurface(lastFocusedSurface)
+                                .focused($focused)
+                                .onAppear { self.focused = true }
+                                .onChange(of: focusedSurface) { newValue in
+                                    if newValue != nil {
+                                        lastFocusedSurface = .init(newValue)
+                                        self.delegate?.focusedSurfaceDidChange(to: newValue)
+                                    }
                                 }
-                            }
-                            .onChange(of: pwdURL) { newValue in
-                                self.delegate?.pwdDidChange(to: newValue)
-                            }
-                            .onChange(of: cellSize) { newValue in
-                                guard let size = newValue else { return }
-                                self.delegate?.cellSizeDidChange(to: size)
-                            }
-                            .frame(idealWidth: lastFocusedSurface?.value?.initialSize?.width,
-                                   idealHeight: lastFocusedSurface?.value?.initialSize?.height)
+                                .onChange(of: pwdURL) { newValue in
+                                    self.delegate?.pwdDidChange(to: newValue)
+                                }
+                                .onChange(of: cellSize) { newValue in
+                                    guard let size = newValue else { return }
+                                    self.delegate?.cellSizeDidChange(to: size)
+                                }
+                                .frame(idealWidth: lastFocusedSurface?.value?.initialSize?.width,
+                                       idealHeight: lastFocusedSurface?.value?.initialSize?.height)
+                        }
                     }
                     .ignoresSafeArea(.container, edges: ghostty.config.macosTitlebarStyle == .hidden ? .top : [])
                 }

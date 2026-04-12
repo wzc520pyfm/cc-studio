@@ -1522,6 +1522,12 @@ extension Ghostty {
             item.setImageIfDesired(systemSymbolName: "rectangle.tophalf.inset.filled")
 
             menu.addItem(.separator())
+            item = menu.addItem(withTitle: "Browser Split Right", action: #selector(AppDelegate.newBrowserSplitRight(_:)), keyEquivalent: "")
+            item.setImageIfDesired(systemSymbolName: "globe")
+            item = menu.addItem(withTitle: "Browser Split Down", action: #selector(AppDelegate.newBrowserSplitDown(_:)), keyEquivalent: "")
+            item.setImageIfDesired(systemSymbolName: "globe")
+
+            menu.addItem(.separator())
             item = menu.addItem(withTitle: "Reset Terminal", action: #selector(resetTerminal(_:)), keyEquivalent: "")
             item.setImageIfDesired(systemSymbolName: "arrow.trianglehead.2.clockwise")
             item = menu.addItem(withTitle: "Toggle Terminal Inspector", action: #selector(toggleTerminalInspector(_:)), keyEquivalent: "")

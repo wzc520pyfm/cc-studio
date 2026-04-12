@@ -60,6 +60,9 @@ class BaseTerminalController: NSWindowController,
     /// The notification manager for tracking events across tabs.
     let notificationManager = NotificationManager()
 
+    /// The browser panel manager for browser panes alongside terminal splits.
+    let browserPanelManager = BrowserPanelManager()
+
     /// Whether the terminal surface should focus when the mouse is over it.
     var focusFollowsMouse: Bool {
         self.derivedConfig.focusFollowsMouse
@@ -906,6 +909,10 @@ class BaseTerminalController: NSWindowController,
         closeTab(id: tabId)
     }
 
+    func requestSwitchToTab(_ tabId: UUID) {
+        switchToTab(id: tabId)
+    }
+
     private func splitDidResize(node: SplitTree<Ghostty.SurfaceView>.Node, to newRatio: Double) {
         let resizedNode = node.resizing(to: newRatio)
         do {
@@ -1078,31 +1085,15 @@ class BaseTerminalController: NSWindowController,
         }
     }
 
-    // MARK: Browser Splits
+    // MARK: Browser Panels
 
-    /// Create a new browser split from the currently focused surface.
+    /// Create a new browser panel alongside the terminal splits.
     func newBrowserSplit(direction: SplitTree<Ghostty.SurfaceView>.NewDirection, url: URL? = nil) {
-        guard let focusedSurface else { return }
-        guard surfaceTree.root?.node(view: focusedSurface) != nil else { return }
-        guard let ghostty_app = ghostty.app else { return }
-
-        let newSurface = Ghostty.SurfaceView(ghostty_app, baseConfig: nil)
-        let newTree: SplitTree<Ghostty.SurfaceView>
-        do {
-            newTree = try surfaceTree.inserting(
-                view: newSurface,
-                at: focusedSurface,
-                direction: direction)
-        } catch {
-            Ghostty.logger.warning("failed to insert browser split: \(error)")
-            return
+        let position: BrowserPanelManager.PanelPosition = switch direction {
+        case .right, .left: .right
+        case .down, .up: .bottom
         }
-
-        replaceSurfaceTree(
-            newTree,
-            moveFocusTo: newSurface,
-            moveFocusFrom: focusedSurface,
-            undoAction: "New Browser Split")
+        let _ = browserPanelManager.addPanel(url: url, position: position)
     }
 
     // MARK: Appearance

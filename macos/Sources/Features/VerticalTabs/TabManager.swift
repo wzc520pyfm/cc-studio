@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import GhosttyKit
+import SwiftUI
 
 /// Manages the collection of tabs within a single window.
 /// Each tab owns its own SplitTree of terminal surfaces.
@@ -11,6 +12,7 @@ class TabManager: ObservableObject {
         var title: String
         var icon: String
         var pwd: String
+        var projectPath: String
         var notificationCount: Int
         var isFlashing: Bool
         var surfaceTree: SplitTree<Ghostty.SurfaceView>
@@ -21,15 +23,30 @@ class TabManager: ObservableObject {
             self.title = title
             self.icon = "terminal"
             self.pwd = ""
+            self.projectPath = ""
             self.notificationCount = 0
             self.isFlashing = false
             self.surfaceTree = surfaceTree
             self.focusedSurface = surfaceTree.first
         }
 
+        var projectName: String {
+            if projectPath.isEmpty {
+                return pwd.isEmpty ? "Terminal" : (pwd as NSString).lastPathComponent
+            }
+            return (projectPath as NSString).lastPathComponent
+        }
+
         static func == (lhs: Tab, rhs: Tab) -> Bool {
             lhs.id == rhs.id
         }
+    }
+
+    /// A group of tabs sharing the same project directory.
+    struct ProjectGroup: Equatable {
+        let projectName: String
+        let projectPath: String
+        var tabs: [Tab]
     }
 
     @Published var tabs: [Tab] = []
@@ -44,6 +61,23 @@ class TabManager: ObservableObject {
     var activeTabIndex: Int? {
         guard let id = activeTabId else { return tabs.isEmpty ? nil : 0 }
         return tabs.firstIndex(where: { $0.id == id })
+    }
+
+    /// Tabs grouped by project directory, preserving insertion order.
+    var projectGroups: [ProjectGroup] {
+        var groups: [String: ProjectGroup] = [:]
+        var order: [String] = []
+        for tab in tabs {
+            let key = tab.projectPath.isEmpty ? (tab.pwd.isEmpty ? "~" : tab.pwd) : tab.projectPath
+            let name = tab.projectName
+            if groups[key] != nil {
+                groups[key]!.tabs.append(tab)
+            } else {
+                groups[key] = ProjectGroup(projectName: name, projectPath: key, tabs: [tab])
+                order.append(key)
+            }
+        }
+        return order.compactMap { groups[$0] }
     }
 
     // MARK: - Tab Operations
@@ -163,6 +197,8 @@ class TabManager: ObservableObject {
     // MARK: - Sidebar
 
     func toggleCollapsed() {
-        isCollapsed.toggle()
+        withAnimation(.easeInOut(duration: 0.2)) {
+            isCollapsed.toggle()
+        }
     }
 }
