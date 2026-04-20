@@ -115,6 +115,10 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
 
                             TerminalSplitTreeView(
                                 tree: viewModel.surfaceTree,
+                                browserPanelManager: viewModel.browserPanelManager,
+                                onCloseBrowserPanel: { panelId in
+                                    viewModel.browserPanelManager.removePanel(id: panelId)
+                                },
                                 action: { delegate?.performSplitAction($0) })
                                 .environmentObject(ghostty)
                                 .ghosttyLastFocusedSurface(lastFocusedSurface)

@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// A single operation within the split tree.
 ///
@@ -7,6 +8,7 @@ import SwiftUI
 enum TerminalSplitOperation {
     case resize(Resize)
     case drop(Drop)
+    case attachBrowser(AttachBrowser)
 
     struct Resize {
         let node: SplitTree<Ghostty.SurfaceView>.Node
@@ -23,10 +25,23 @@ enum TerminalSplitOperation {
         /// The zone it was dropped to determine how to split the destination.
         let zone: TerminalSplitDropZone
     }
+
+    struct AttachBrowser {
+        /// The browser panel ID being dragged.
+        let panelId: UUID
+
+        /// The terminal surface it was dropped onto.
+        let destination: Ghostty.SurfaceView
+
+        /// Which side of the destination to attach to.
+        let zone: TerminalSplitDropZone
+    }
 }
 
 struct TerminalSplitTreeView: View {
     let tree: SplitTree<Ghostty.SurfaceView>
+    let browserPanelManager: BrowserPanelManager
+    let onCloseBrowserPanel: (UUID) -> Void
     let action: (TerminalSplitOperation) -> Void
 
     var body: some View {
@@ -34,6 +49,8 @@ struct TerminalSplitTreeView: View {
             TerminalSplitSubtreeView(
                 node: node,
                 isRoot: node == tree.root,
+                browserPanelManager: browserPanelManager,
+                onCloseBrowserPanel: onCloseBrowserPanel,
                 action: action)
             // This is necessary because we can't rely on SwiftUI's implicit
             // structural identity to detect changes to this view. Due to
@@ -49,12 +66,19 @@ private struct TerminalSplitSubtreeView: View {
 
     let node: SplitTree<Ghostty.SurfaceView>.Node
     var isRoot: Bool = false
+    let browserPanelManager: BrowserPanelManager
+    let onCloseBrowserPanel: (UUID) -> Void
     let action: (TerminalSplitOperation) -> Void
 
     var body: some View {
         switch node {
         case .leaf(let leafView):
-            TerminalSplitLeaf(surfaceView: leafView, isSplit: !isRoot, action: action)
+            TerminalSplitLeaf(
+                surfaceView: leafView,
+                isSplit: !isRoot,
+                browserPanelManager: browserPanelManager,
+                onCloseBrowserPanel: onCloseBrowserPanel,
+                action: action)
 
         case .split(let split):
             let splitViewDirection: SplitViewDirection = switch split.direction {
@@ -72,10 +96,18 @@ private struct TerminalSplitSubtreeView: View {
                 dividerColor: ghostty.config.splitDividerColor,
                 resizeIncrements: .init(width: 1, height: 1),
                 left: {
-                    TerminalSplitSubtreeView(node: split.left, action: action)
+                    TerminalSplitSubtreeView(
+                        node: split.left,
+                        browserPanelManager: browserPanelManager,
+                        onCloseBrowserPanel: onCloseBrowserPanel,
+                        action: action)
                 },
                 right: {
-                    TerminalSplitSubtreeView(node: split.right, action: action)
+                    TerminalSplitSubtreeView(
+                        node: split.right,
+                        browserPanelManager: browserPanelManager,
+                        onCloseBrowserPanel: onCloseBrowserPanel,
+                        action: action)
                 },
                 onEqualize: {
                     guard let surface = node.leftmostLeaf().surface else { return }
@@ -89,12 +121,38 @@ private struct TerminalSplitSubtreeView: View {
 private struct TerminalSplitLeaf: View {
     let surfaceView: Ghostty.SurfaceView
     let isSplit: Bool
+    @ObservedObject var browserPanelManager: BrowserPanelManager
+    let onCloseBrowserPanel: (UUID) -> Void
     let action: (TerminalSplitOperation) -> Void
 
     @State private var dropState: DropState = .idle
     @State private var isSelfDragging: Bool = false
 
+    init(
+        surfaceView: Ghostty.SurfaceView,
+        isSplit: Bool,
+        browserPanelManager: BrowserPanelManager,
+        onCloseBrowserPanel: @escaping (UUID) -> Void,
+        action: @escaping (TerminalSplitOperation) -> Void
+    ) {
+        self.surfaceView = surfaceView
+        self.isSplit = isSplit
+        self.browserPanelManager = browserPanelManager
+        self.onCloseBrowserPanel = onCloseBrowserPanel
+        self.action = action
+    }
+
     var body: some View {
+        AttachedBrowserWrapper(
+            surfaceView: surfaceView,
+            browserPanelManager: browserPanelManager,
+            onCloseBrowserPanel: onCloseBrowserPanel
+        ) {
+            terminalContent
+        }
+    }
+
+    private var terminalContent: some View {
         GeometryReader { geometry in
             Ghostty.InspectableSurface(
                 surfaceView: surfaceView,
@@ -105,7 +163,7 @@ private struct TerminalSplitLeaf: View {
                 // so it is a proper invalid drop zone.
                 if !isSelfDragging {
                     Color.clear
-                        .onDrop(of: [.ghosttySurfaceId], delegate: SplitDropDelegate(
+                        .onDrop(of: [.ghosttySurfaceId, .ghosttyBrowserPanelId], delegate: SplitDropDelegate(
                             dropState: $dropState,
                             viewSize: geometry.size,
                             destinationSurface: surfaceView,
@@ -142,7 +200,7 @@ private struct TerminalSplitLeaf: View {
         let action: (TerminalSplitOperation) -> Void
 
         func validateDrop(info: DropInfo) -> Bool {
-            info.hasItemsConforming(to: [.ghosttySurfaceId])
+            info.hasItemsConforming(to: [.ghosttySurfaceId, .ghosttyBrowserPanelId])
         }
 
         func dropEntered(info: DropInfo) {
@@ -166,11 +224,24 @@ private struct TerminalSplitLeaf: View {
             let zone = TerminalSplitDropZone.calculate(at: info.location, in: viewSize)
             dropState = .idle
 
-            // Load the dropped surface asynchronously using Transferable
+            // First check for browser panel drops
+            let browserProviders = info.itemProviders(for: [.ghosttyBrowserPanelId])
+            if let provider = browserProviders.first {
+                _ = provider.loadDataRepresentation(forTypeIdentifier: UTType.ghosttyBrowserPanelId.identifier) { [weak destinationSurface] data, _ in
+                    guard let data, data.count == 16 else { return }
+                    let uuid = data.withUnsafeBytes { $0.load(as: UUID.self) }
+                    DispatchQueue.main.async {
+                        guard let destinationSurface else { return }
+                        action(.attachBrowser(.init(panelId: uuid, destination: destinationSurface, zone: zone)))
+                    }
+                }
+                return true
+            }
+
+            // Otherwise handle terminal surface drops
             let providers = info.itemProviders(for: [.ghosttySurfaceId])
             guard let provider = providers.first else { return false }
 
-            // Capture action before the async closure
             _ = provider.loadTransferable(type: Ghostty.SurfaceView.self) { [weak destinationSurface] result in
                 switch result {
                 case .success(let sourceSurface):
@@ -188,6 +259,192 @@ private struct TerminalSplitLeaf: View {
 
             return true
         }
+    }
+}
+
+/// Wraps terminal content with browser panels attached to its surface ID.
+/// Renders attached browsers as horizontal/vertical splits around the content
+/// using AppKit-backed resize handles for smooth dragging.
+private struct AttachedBrowserWrapper<Content: View>: View {
+    let surfaceView: Ghostty.SurfaceView
+    @ObservedObject var browserPanelManager: BrowserPanelManager
+    let onCloseBrowserPanel: (UUID) -> Void
+    let content: Content
+
+    @State private var ratioAtDragStart: CGFloat?
+
+    init(
+        surfaceView: Ghostty.SurfaceView,
+        browserPanelManager: BrowserPanelManager,
+        onCloseBrowserPanel: @escaping (UUID) -> Void,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.surfaceView = surfaceView
+        self.browserPanelManager = browserPanelManager
+        self.onCloseBrowserPanel = onCloseBrowserPanel
+        self.content = content()
+    }
+
+    var body: some View {
+        let leftPanel = browserPanelManager.attachedPanels(for: surfaceView.id, side: .left).first
+        let rightPanel = browserPanelManager.attachedPanels(for: surfaceView.id, side: .right).first
+        let topPanel = browserPanelManager.attachedPanels(for: surfaceView.id, side: .top).first
+        let bottomPanel = browserPanelManager.attachedPanels(for: surfaceView.id, side: .bottom).first
+
+        verticalWrap(top: topPanel, bottom: bottomPanel) {
+            horizontalWrap(left: leftPanel, right: rightPanel) {
+                content
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func horizontalWrap<C: View>(
+        left: BrowserPanelManager.Panel?,
+        right: BrowserPanelManager.Panel?,
+        @ViewBuilder content: @escaping () -> C
+    ) -> some View {
+        if left == nil && right == nil {
+            content()
+        } else {
+            GeometryReader { geo in
+                let totalWidth = geo.size.width
+                let handleWidth: CGFloat = 6
+                let leftWidth: CGFloat = left.map { max(80, min(totalWidth - 80, totalWidth * $0.ratio)) } ?? 0
+                let rightWidth: CGFloat = right.map { max(80, min(totalWidth - 80, totalWidth * $0.ratio)) } ?? 0
+                let leftHandle: CGFloat = left == nil ? 0 : handleWidth
+                let rightHandle: CGFloat = right == nil ? 0 : handleWidth
+                let centerWidth = max(0, totalWidth - leftWidth - rightWidth - leftHandle - rightHandle)
+
+                HStack(spacing: 0) {
+                    if let left {
+                        browserPane(left)
+                            .frame(width: leftWidth)
+                        browserResizeHandle(panelId: left.id, isHorizontal: true, totalSize: totalWidth, isReverse: false)
+                            .frame(width: handleWidth)
+                    }
+                    content()
+                        .frame(width: centerWidth)
+                    if let right {
+                        browserResizeHandle(panelId: right.id, isHorizontal: true, totalSize: totalWidth, isReverse: true)
+                            .frame(width: handleWidth)
+                        browserPane(right)
+                            .frame(width: rightWidth)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func verticalWrap<C: View>(
+        top: BrowserPanelManager.Panel?,
+        bottom: BrowserPanelManager.Panel?,
+        @ViewBuilder content: @escaping () -> C
+    ) -> some View {
+        if top == nil && bottom == nil {
+            content()
+        } else {
+            GeometryReader { geo in
+                let totalHeight = geo.size.height
+                let handleHeight: CGFloat = 6
+                let topHeight: CGFloat = top.map { max(80, min(totalHeight - 80, totalHeight * $0.ratio)) } ?? 0
+                let bottomHeight: CGFloat = bottom.map { max(80, min(totalHeight - 80, totalHeight * $0.ratio)) } ?? 0
+                let topHandle: CGFloat = top == nil ? 0 : handleHeight
+                let bottomHandle: CGFloat = bottom == nil ? 0 : handleHeight
+                let centerHeight = max(0, totalHeight - topHeight - bottomHeight - topHandle - bottomHandle)
+
+                VStack(spacing: 0) {
+                    if let top {
+                        browserPane(top)
+                            .frame(height: topHeight)
+                        browserResizeHandle(panelId: top.id, isHorizontal: false, totalSize: totalHeight, isReverse: false)
+                            .frame(height: handleHeight)
+                    }
+                    content()
+                        .frame(height: centerHeight)
+                    if let bottom {
+                        browserResizeHandle(panelId: bottom.id, isHorizontal: false, totalSize: totalHeight, isReverse: true)
+                            .frame(height: handleHeight)
+                        browserPane(bottom)
+                            .frame(height: bottomHeight)
+                    }
+                }
+            }
+        }
+    }
+
+    private func browserPane(_ panel: BrowserPanelManager.Panel) -> some View {
+        BrowserPanelChrome(
+            panel: panel,
+            panelManager: browserPanelManager,
+            onClose: { onCloseBrowserPanel(panel.id) }
+        )
+    }
+
+    private func browserResizeHandle(panelId: UUID, isHorizontal: Bool, totalSize: CGFloat, isReverse: Bool) -> some View {
+        BrowserSplitResizeHandle(
+            isHorizontal: isHorizontal,
+            onDrag: { delta in
+                guard let panel = browserPanelManager.panels.first(where: { $0.id == panelId }) else { return }
+                if ratioAtDragStart == nil { ratioAtDragStart = panel.ratio }
+                if let start = ratioAtDragStart {
+                    let signedDelta = isReverse ? -delta : delta
+                    let newRatio = start + signedDelta / totalSize
+                    browserPanelManager.updateRatio(id: panelId, ratio: newRatio)
+                }
+            },
+            onDragEnd: { ratioAtDragStart = nil }
+        )
+    }
+}
+
+/// AppKit-backed resize handle to avoid SwiftUI DragGesture jitter.
+fileprivate struct BrowserSplitResizeHandle: NSViewRepresentable {
+    let isHorizontal: Bool
+    let onDrag: (CGFloat) -> Void
+    let onDragEnd: () -> Void
+
+    func makeNSView(context: Context) -> BrowserSplitResizeNSView {
+        let view = BrowserSplitResizeNSView()
+        view.isHorizontal = isHorizontal
+        view.onDrag = onDrag
+        view.onDragEnd = onDragEnd
+        return view
+    }
+
+    func updateNSView(_ nsView: BrowserSplitResizeNSView, context: Context) {
+        nsView.isHorizontal = isHorizontal
+        nsView.onDrag = onDrag
+        nsView.onDragEnd = onDragEnd
+    }
+}
+
+fileprivate class BrowserSplitResizeNSView: NSView {
+    var isHorizontal: Bool = true
+    var onDrag: ((CGFloat) -> Void)?
+    var onDragEnd: (() -> Void)?
+    private var startPos: CGFloat = 0
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: isHorizontal ? .resizeLeftRight : .resizeUpDown)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let p = NSEvent.mouseLocation
+        startPos = isHorizontal ? p.x : p.y
+        onDrag?(0)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        let p = NSEvent.mouseLocation
+        let cur = isHorizontal ? p.x : p.y
+        let delta = cur - startPos
+        onDrag?(isHorizontal ? delta : -delta)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        onDragEnd?()
     }
 }
 

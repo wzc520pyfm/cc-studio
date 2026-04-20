@@ -48,11 +48,18 @@ extension UTType {
     /// A format that encodes the bare UUID only for the surface. This can be used if you have
     /// a way to look up a surface by ID.
     static let ghosttySurfaceId = UTType(exportedAs: "com.mitchellh.ghosttySurfaceId")
+
+    /// A format that encodes the bare UUID for a browser panel. Used for drag-and-drop
+    /// attachment of browser panels to terminal split panes.
+    static let ghosttyBrowserPanelId = UTType(exportedAs: "com.mitchellh.ghosttyBrowserPanelId")
 }
 
 #if canImport(AppKit)
 extension NSPasteboard.PasteboardType {
     /// Pasteboard type for dragging surface IDs.
     static let ghosttySurfaceId = NSPasteboard.PasteboardType(UTType.ghosttySurfaceId.identifier)
+
+    /// Pasteboard type for dragging browser panel IDs.
+    static let ghosttyBrowserPanelId = NSPasteboard.PasteboardType(UTType.ghosttyBrowserPanelId.identifier)
 }
 #endif

@@ -898,7 +898,26 @@ class BaseTerminalController: NSWindowController,
             splitDidResize(node: resize.node, to: resize.ratio)
         case .drop(let drop):
             splitDidDrop(source: drop.payload, destination: drop.destination, zone: drop.zone)
+        case .attachBrowser(let attach):
+            browserDidAttach(panelId: attach.panelId, destination: attach.destination, zone: attach.zone)
         }
+    }
+
+    private func browserDidAttach(
+        panelId: UUID,
+        destination: Ghostty.SurfaceView,
+        zone: TerminalSplitDropZone
+    ) {
+        let side: BrowserPanelManager.PanelPosition.AttachSide = switch zone {
+        case .top: .top
+        case .bottom: .bottom
+        case .left: .left
+        case .right: .right
+        }
+        browserPanelManager.movePanel(
+            id: panelId,
+            to: .attached(surfaceId: destination.id, side: side)
+        )
     }
 
     func requestNewTab() {
@@ -1088,12 +1107,27 @@ class BaseTerminalController: NSWindowController,
     // MARK: Browser Panels
 
     /// Create a new browser panel alongside the terminal splits.
+    /// If a focused surface exists, the panel is attached to it on the requested
+    /// side; otherwise it falls back to a container-level panel on the right or bottom.
     func newBrowserSplit(direction: SplitTree<Ghostty.SurfaceView>.NewDirection, url: URL? = nil) {
-        let position: BrowserPanelManager.PanelPosition = switch direction {
-        case .right, .left: .right
-        case .down, .up: .bottom
+        if let focused = focusedSurface {
+            let side: BrowserPanelManager.PanelPosition.AttachSide = switch direction {
+            case .right: .right
+            case .left: .left
+            case .down: .bottom
+            case .up: .top
+            }
+            _ = browserPanelManager.addPanel(
+                url: url,
+                position: .attached(surfaceId: focused.id, side: side)
+            )
+        } else {
+            let containerSide: BrowserPanelManager.PanelPosition.ContainerSide = switch direction {
+            case .right, .left: .right
+            case .down, .up: .bottom
+            }
+            _ = browserPanelManager.addPanel(url: url, position: .container(containerSide))
         }
-        let _ = browserPanelManager.addPanel(url: url, position: position)
     }
 
     // MARK: Appearance
